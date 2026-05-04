@@ -1,6 +1,6 @@
 .billing-page {
   min-height: 100vh;
-  background: #f8fafc;
+  background: #f1f5f9;
   color: #0f172a;
 }
 
@@ -10,7 +10,7 @@
   z-index: 30;
   background: rgba(248, 250, 252, 0.96);
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid #dbe3ef;
   padding: 14px;
 }
 
@@ -48,8 +48,8 @@
 }
 
 .stat-card {
-  border: 1px solid #e2e8f0;
-  background: #fff;
+  border: 1px solid #dbe3ef;
+  background: rgba(255, 255, 255, 0.92);
   border-radius: 12px;
   padding: 10px;
   display: flex;
@@ -79,7 +79,7 @@
 }
 
 .billing-tabs button {
-  border: 1px solid #cbd5e1;
+  border: 1px solid #dbe3ef;
   border-radius: 999px;
   background: #fff;
   min-height: 38px;
@@ -138,10 +138,11 @@
 .qr-card,
 .staff-card,
 .panel {
-  border: 1px solid #e2e8f0;
+  border: 1px solid #dbe3ef;
   background: #fff;
-  border-radius: 14px;
+  border-radius: 16px;
   padding: 12px;
+  box-shadow: 0 10px 24px -22px rgba(15, 23, 42, 0.45);
 }
 
 .line-strong {
@@ -173,12 +174,12 @@
 }
 
 .primary-btn {
-  background: #0f172a;
+  background: linear-gradient(135deg, #0f172a, #1e3a8a);
   color: #fff;
 }
 
 .secondary-btn {
-  background: #e2e8f0;
+  background: #eef2ff;
   color: #0f172a;
 }
 
@@ -378,7 +379,7 @@
   width: 66px;
   height: 66px;
   object-fit: cover;
-  border-radius: 10px;
+  border-radius: 12px;
 }
 
 .price-edit {

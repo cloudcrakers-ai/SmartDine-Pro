@@ -1,6 +1,6 @@
 .customer-page {
   min-height: 100vh;
-  background: #f8fafc;
+  background: #f1f5f9;
   color: #0f172a;
   font-family: Inter, sans-serif;
   padding-bottom: 110px;
@@ -17,7 +17,7 @@
   z-index: 40;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(12px);
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid #dbe3ef;
 }
 
 .customer-note {
@@ -66,7 +66,7 @@
 .menu-hub-trigger {
   padding: 0 14px;
   color: #fff;
-  background: #0f172a;
+  background: linear-gradient(135deg, #0f172a, #1e3a8a);
   font-weight: 700;
 }
 
@@ -113,11 +113,12 @@
 .menu-item-card-pro {
   border-radius: 14px;
   background: #fff;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #dbe3ef;
   display: grid;
   grid-template-columns: 96px 1fr;
   gap: 12px;
   padding: 10px;
+  box-shadow: 0 12px 24px -22px rgba(15, 23, 42, 0.45);
 }
 
 .menu-item-card-pro.sold-out {
@@ -174,7 +175,7 @@
 .item-add-btn-pro {
   border: 0;
   border-radius: 999px;
-  background: #0f172a;
+  background: linear-gradient(135deg, #0f172a, #1e3a8a);
   color: #fff;
   font-weight: 700;
   min-width: 68px;
@@ -410,7 +411,7 @@
   width: 100%;
   border: 0;
   border-radius: 12px;
-  background: #0f172a;
+  background: linear-gradient(135deg, #0f172a, #1e3a8a);
   color: #fff;
   min-height: 52px;
   padding: 0 14px;
@@ -557,7 +558,7 @@
   border: 0;
   border-radius: 10px;
   min-height: 42px;
-  background: #16a34a;
+  background: linear-gradient(135deg, #16a34a, #22c55e);
   color: #fff;
   font-size: 0.92rem;
   font-weight: 700;

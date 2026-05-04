@@ -1,6 +1,6 @@
 .kds-app {
   height: 100vh;
-  background: #0f172a;
+  background: radial-gradient(circle at top right, #1e293b 0%, #0b1220 52%, #020617 100%);
   color: #fff;
   display: flex;
   flex-direction: column;
@@ -67,7 +67,8 @@
 /* Header */
 .kds-header {
   min-height: 74px;
-  background: #1e293b;
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(12px);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -148,7 +149,7 @@
   grid-column: 1 / -1;
   border: 1px solid #334155;
   border-radius: 14px;
-  background: #111827;
+  background: rgba(15, 23, 42, 0.9);
   padding: 12px;
 }
 
@@ -199,7 +200,7 @@
 .kds-stock-item {
   border: 1px solid #374151;
   border-radius: 10px;
-  background: #0f172a;
+  background: #101a2d;
   padding: 10px;
   display: grid;
   gap: 8px;
@@ -269,11 +270,12 @@
 }
 
 .kds-ticket {
-  background: #1e293b;
+  background: #162136;
   border-radius: 14px;
   display: flex;
   flex-direction: column;
-  border: 1px solid #334155;
+  border: 1px solid #3b4b63;
+  box-shadow: 0 12px 30px -24px rgba(59, 130, 246, 0.5);
   transition: 0.2s;
   position: relative;
 }
@@ -328,7 +330,7 @@
   transition: 0.2s;
 }
 .kds-btn.fire { background: #3b82f6; color: #fff; }
-.kds-btn.ready { background: #22c55e; color: #fff; }
+.kds-btn.ready { background: linear-gradient(135deg, #16a34a, #22c55e); color: #fff; }
 .kds-btn:active { transform: scale(0.96); }
 
 .ticket-waiting {
