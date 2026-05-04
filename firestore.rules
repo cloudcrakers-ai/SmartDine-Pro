@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // EXPERIMENT MODE:
+    // Open access for quick local/prototype testing.
+    // Do NOT use these rules for production.
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

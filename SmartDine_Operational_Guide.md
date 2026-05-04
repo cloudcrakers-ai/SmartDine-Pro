@@ -9,7 +9,7 @@ Because we deployed your application to **Firebase Cloud Hosting**, your app liv
 
 **Your Live URLs:**
 * **Customer Menu:** [https://smartdine-pro.web.app](https://smartdine-pro.web.app)
-* **Staff/Billing Console:** [https://smartdine-pro.web.app/staff.html](https://smartdine-pro.web.app/staff.html) *(PIN: 1234)*
+* **Staff/Billing Console:** [https://smartdine-pro.web.app/staff.html](https://smartdine-pro.web.app/staff.html) *(PIN: 5258)*
 * **Waiter/Service Panel:** [https://smartdine-pro.web.app/waiter.html](https://smartdine-pro.web.app/waiter.html)
 
 **What to do before shutting down your laptop:**

@@ -1,122 +1,207 @@
-import React, { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useStore } from '../context/Store';
+import { Clock, ChefHat, Play, CheckCircle2, Volume2, LogOut, LayoutGrid, Package, Ban, Check } from 'lucide-react';
 import './ChefView.css';
 
 export default function ChefView() {
-  const { orders, menu, updateOrderStatus, raiseMenuRequest } = useStore();
-  const [activeTab, setActiveTab] = useState<'queue' | 'stock'>('queue');
+  const { orders, staff, menu, menuRequests, raiseMenuRequest, updateOrderStatus, updateStaffActivity, setStaffStatus } = useStore();
+  const [activeKdsTab, setActiveKdsTab] = useState<'DINE_IN' | 'TAKE_AWAY'>('DINE_IN');
+  
+  // Kitchen Auth
+  const [loggedChefId, setLoggedChefId] = useState<string | null>(() => sessionStorage.getItem('sd_chef_id'));
+  const [chefPhone, setChefPhone] = useState('');
+  const [chefPin, setChefPin] = useState('');
+  const [authError, setAuthError] = useState(false);
 
-  const pendingOrders = useMemo(() => orders.filter(o => o.status === 'PENDING'), [orders]);
-  const preparingOrders = useMemo(() => orders.filter(o => o.status === 'PREPARING'), [orders]);
-  const allActive = useMemo(() => [...pendingOrders, ...preparingOrders], [pendingOrders, preparingOrders]);
+  // Audio Notification
+  const lastOrderCount = useRef(orders.length);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const timeSince = (ts: number) => {
-    const mins = Math.floor((Date.now() - ts) / 60000);
-    if (mins < 1) return 'Just now';
-    if (mins < 60) return `${mins}m ago`;
-    return `${Math.floor(mins / 60)}h ${mins % 60}m ago`;
+  useEffect(() => {
+    audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+  }, []);
+
+  // Heartbeat
+  useEffect(() => {
+    if (!loggedChefId) return;
+    updateStaffActivity(loggedChefId);
+    const interval = setInterval(() => {
+      updateStaffActivity(loggedChefId);
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [loggedChefId]);
+
+  useEffect(() => {
+    if (orders.length > lastOrderCount.current) {
+      const newOrders = orders.filter(o => o.status === 'PENDING');
+      if (newOrders.length > 0) {
+        audioRef.current?.play().catch(e => console.log('Audio play failed:', e));
+      }
+    }
+    lastOrderCount.current = orders.length;
+  }, [orders]);
+
+  const handleChefLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const member = staff.find(s => s.phone === chefPhone && s.pin === chefPin && s.role === 'CHEF');
+    if (member) {
+      setLoggedChefId(member.id);
+      sessionStorage.setItem('sd_chef_id', member.id);
+      setStaffStatus(member.id, 'ONLINE');
+      setAuthError(false);
+      setChefPhone('');
+      setChefPin('');
+    } else {
+      setAuthError(true);
+    }
   };
 
-  const handleStockToggle = (itemId: string, currentlyAvailable: boolean) => {
-    raiseMenuRequest(itemId, !currentlyAvailable);
+  const handleLogout = () => {
+    if (loggedChefId) setStaffStatus(loggedChefId, 'OFFLINE');
+    setLoggedChefId(null);
+    sessionStorage.removeItem('sd_chef_id');
   };
+
+  const filteredOrders = useMemo(() => 
+    orders.filter(o => o.type === activeKdsTab && ['PENDING', 'PREPARING', 'READY'].includes(o.status))
+    .sort((a, b) => a.createdAt - b.createdAt),
+  [orders, activeKdsTab]);
+
+  if (!loggedChefId) {
+    return (
+      <div className="kds-auth-overlay">
+        <div className="kds-auth-card">
+          <ChefHat size={64} className="auth-icon" />
+          <h1>Kitchen Console</h1>
+          <p>Receive, prepare, and mark orders ready in real time.</p>
+          <form onSubmit={handleChefLogin}>
+            <input type="tel" placeholder="Mobile Number" value={chefPhone} onChange={e => setChefPhone(e.target.value)} required />
+            <input type="password" placeholder="4-Digit PIN" maxLength={4} value={chefPin} onChange={e => setChefPin(e.target.value)} required />
+            {authError && <div className="auth-error">Invalid credentials</div>}
+            <button type="submit">Start Kitchen Session</button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="chef-page">
-      {/* Header */}
-      <header className="chef-header">
-        <div className="chef-brand">
-          <span className="chef-brand-dot" />
-          Kitchen Display
+    <div className="kds-app">
+      <header className="kds-header">
+        <div className="kds-header-left">
+          <div className="kds-tabs">
+            <button className={`kds-tab ${activeKdsTab === 'DINE_IN' ? 'active' : ''}`} onClick={() => setActiveKdsTab('DINE_IN')}>
+              <LayoutGrid size={18} /> DINE-IN ({orders.filter(o => o.type === 'DINE_IN' && ['PENDING', 'PREPARING'].includes(o.status)).length})
+            </button>
+            <button className={`kds-tab ${activeKdsTab === 'TAKE_AWAY' ? 'active' : ''}`} onClick={() => setActiveKdsTab('TAKE_AWAY')}>
+              <Package size={18} /> TAKE-AWAY ({orders.filter(o => o.type === 'TAKE_AWAY' && ['PENDING', 'PREPARING'].includes(o.status)).length})
+            </button>
+          </div>
         </div>
-        <Link to="/billing" className="chef-back-link">← Console</Link>
-        <div className="chef-stats">
-          <div className="chef-stat">
-            <div className="chef-stat-value">{pendingOrders.length}</div>
-            <div className="chef-stat-label">Incoming</div>
-          </div>
-          <div className="chef-stat">
-            <div className="chef-stat-value">{preparingOrders.length}</div>
-            <div className="chef-stat-label">In Progress</div>
-          </div>
+        
+        <div className="kds-header-center">
+          <div className="kds-logo">SMARTDINE<span>PRO</span></div>
+        </div>
+
+        <div className="kds-header-right">
+          <div className="kds-time">{new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
+          <button className="kds-logout" onClick={handleLogout}><LogOut size={18} /></button>
         </div>
       </header>
 
-      {/* Tabs */}
-      <div className="chef-tabs">
-        <button className={`chef-tab${activeTab === 'queue' ? ' active' : ''}`} onClick={() => setActiveTab('queue')}>
-          Order Queue
-          {allActive.length > 0 && <span className="tab-count">{allActive.length}</span>}
-        </button>
-        <button className={`chef-tab${activeTab === 'stock' ? ' active' : ''}`} onClick={() => setActiveTab('stock')}>
-          Stock Control
-        </button>
-      </div>
-
-      {/* Queue View */}
-      {activeTab === 'queue' && (
-        <div className="chef-queue">
-          {allActive.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-state-icon">🍳</div>
-              <div className="empty-state-text">No active orders. Kitchen is clear.</div>
-            </div>
-          ) : (
-            allActive.map((order, idx) => (
-              <div key={order.id} className={`chef-order-card${order.status === 'PENDING' ? ' new-order' : ''}`} style={{ animationDelay: `${idx * 80}ms` }}>
-                <div className="order-card-header">
-                  <div>
-                    <div className="order-id-badge">{order.id}</div>
-                    <div className="order-time">{timeSince(order.createdAt)}</div>
-                  </div>
-                  <div className="order-table-badge">Table {order.tableId}</div>
-                </div>
-                <div className="order-items-list">
-                  {order.items.map((item, i) => (
-                    <div key={i} className="order-item-row">
-                      <span className="item-name">{item.name}</span>
-                      <span className="item-qty">× {item.quantity}</span>
+      <main className="kds-grid">
+        <section className="kds-stock-panel">
+          <div className="kds-stock-head">
+            <h3>Item Availability Requests</h3>
+            <p>Send stock updates to billing for approval.</p>
+          </div>
+          <div className="kds-stock-list">
+            {menu.map((item) => {
+              const soldOutPending = menuRequests.some(
+                (request) =>
+                  request.menuItemId === item.id && request.requestedAvailability === false && request.status === 'PENDING'
+              );
+              const availablePending = menuRequests.some(
+                (request) =>
+                  request.menuItemId === item.id && request.requestedAvailability === true && request.status === 'PENDING'
+              );
+              return (
+                <article key={item.id} className="kds-stock-item">
+                  <div className="kds-stock-meta">
+                    <div className="kds-stock-name">{item.name}</div>
+                    <div className={`kds-stock-state ${item.available ? 'available' : 'soldout'}`}>
+                      {item.available ? 'Available' : 'Sold Out'}
                     </div>
-                  ))}
-                </div>
-                <div className="order-card-actions">
-                  {order.status === 'PENDING' && (
-                    <>
-                      <button className="chef-action-btn primary" onClick={() => updateOrderStatus(order.id, 'PREPARING')}>
-                        Start Preparing
-                      </button>
-                      <button className="chef-action-btn ghost" onClick={() => updateOrderStatus(order.id, 'CANCELLED')}>
-                        Reject
-                      </button>
-                    </>
-                  )}
-                  {order.status === 'PREPARING' && (
-                    <button className="chef-action-btn success" onClick={() => updateOrderStatus(order.id, 'READY')}>
-                      ✓ Mark Ready
+                  </div>
+                  <div className="kds-stock-actions">
+                    <button
+                      className="kds-small-btn warn"
+                      disabled={soldOutPending}
+                      onClick={() => raiseMenuRequest(item.id, false)}
+                    >
+                      <Ban size={14} />
+                      {soldOutPending ? 'Pending' : 'Sold Out'}
                     </button>
-                  )}
+                    <button
+                      className="kds-small-btn good"
+                      disabled={availablePending}
+                      onClick={() => raiseMenuRequest(item.id, true)}
+                    >
+                      <Check size={14} />
+                      {availablePending ? 'Pending' : 'Available'}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+        {filteredOrders.length === 0 ? (
+          <div className="kds-empty">
+            <Volume2 size={64} className="pulse" />
+            <h2>No {activeKdsTab === 'DINE_IN' ? 'Dine-in' : 'Parcel'} Tickets</h2>
+            <p>Waiting for new customer orders</p>
+          </div>
+        ) : (
+          filteredOrders.map(order => (
+            <div key={order.id} className={`kds-ticket ${order.status.toLowerCase()}`}>
+              {order.complaint && !order.complaint.resolved && <div className="priority-tag">PRIORITY</div>}
+              <div className="ticket-header">
+                <div className="table-id">{order.type === 'TAKE_AWAY' ? 'PARCEL' : `Table ${order.tableId}`}</div>
+                <div className="ticket-timer">
+                  <Clock size={14} /> 
+                  {Math.floor((Date.now() - order.createdAt) / 60000)}m
                 </div>
               </div>
-            ))
-          )}
-        </div>
-      )}
 
-      {/* Stock Control */}
-      {activeTab === 'stock' && (
-        <div className="stock-grid">
-          {menu.map(item => (
-            <div key={item.id} className={`stock-item${item.requestPending ? ' stock-pending' : ''}`}>
-              <div>
-                <div className="stock-name">{item.name}</div>
-                <div className="stock-category">{item.category} · ₹{item.price.toFixed(0)}</div>
+              <div className="ticket-items">
+                {order.items.map((item, i) => (
+                  <div key={i} className="ticket-item">
+                    <span className="qty">{item.quantity}</span>
+                    <span className="name">{item.name}</span>
+                  </div>
+                ))}
               </div>
-              <button className={`stock-toggle${item.available ? ' on' : ''}`} onClick={() => handleStockToggle(item.id, item.available)} title={item.available ? 'Mark as unavailable' : 'Request to re-enable'} />
+
+              <div className="ticket-footer">
+                {order.status === 'PENDING' && (
+                  <button className="kds-btn fire" onClick={() => updateOrderStatus(order.id, 'PREPARING')}>
+                    <Play size={16} fill="currentColor" /> START PREPARING
+                  </button>
+                )}
+                {order.status === 'PREPARING' && (
+                  <button className="kds-btn ready" onClick={() => updateOrderStatus(order.id, 'READY')}>
+                    <CheckCircle2 size={16} /> READY FOR PICKUP
+                  </button>
+                )}
+                {order.status === 'READY' && (
+                  <div className="ticket-waiting">READY FOR PICKUP</div>
+                )}
+              </div>
             </div>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </main>
     </div>
   );
 }

@@ -1,378 +1,774 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Link } from 'react-router-dom';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import {
+  AlertCircle,
+  DollarSign,
+  ListOrdered,
+  Minus,
+  Package,
+  Plus,
+  Printer,
+  Share2,
+  ShieldCheck,
+  UserPlus,
+  X,
+} from 'lucide-react';
+import { storage } from '../firebase';
 import { useStore } from '../context/Store';
 import './BillingView.css';
 
-type Tab = 'orders' | 'requests' | 'qrcodes' | 'pricing';
+type Tab = 'orders' | 'staff' | 'complaints' | 'pricing' | 'qrcodes' | 'requests';
 
 const TABLE_COUNT = 12;
 
-export default function BillingView() {
-  const { orders, menu, menuRequests, markPaid, resolveMenuRequest, clearAllOrders, updateMenuItemPrice } = useStore();
-  const [tab, setTab] = useState<Tab>('orders');
-  const [selectedTable, setSelectedTable] = useState<number | null>(null);
+type ParcelCartItem = { id: string; name: string; price: number; quantity: number };
 
+export default function BillingView() {
+  const {
+    orders,
+    menu,
+    menuRequests,
+    staff,
+    markPaid,
+    resolveMenuRequest,
+    updateMenuItemPrice,
+    addMenuItem,
+    addStaff,
+    removeStaff,
+    resolveComplaint,
+    addOrder,
+    clearAllOrders,
+    setMenuItemAvailability,
+  } = useStore();
+
+  const [tab, setTab] = useState<Tab>('orders');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showParcelModal, setShowParcelModal] = useState(false);
+  const [activeQRTable, setActiveQRTable] = useState<number | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [clearingOrders, setClearingOrders] = useState(false);
+  const [isCustomCategory, setIsCustomCategory] = useState(false);
+  const [dashboardMode, setDashboardMode] = useState(false);
+
+  const [newItem, setNewItem] = useState({ name: '', description: '', price: '', category: '' });
+  const [newStaff, setNewStaff] = useState({ name: '', phone: '', pin: '', role: 'WAITER' as 'WAITER' | 'CHEF' });
+  const [parcelCustomer, setParcelCustomer] = useState({ name: '', phone: '' });
+  const [parcelCart, setParcelCart] = useState<ParcelCartItem[]>([]);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const baseUrl = window.location.origin;
 
+  const categories = useMemo(() => {
+    const unique = Array.from(new Set(menu.map((item) => item.category)));
+    return unique.length > 0 ? unique : ['Mains', 'Starters', 'Desserts', 'Beverages'];
+  }, [menu]);
+
   const todayOrders = useMemo(() => {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    return orders.filter(o => o.createdAt >= startOfDay.getTime());
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    return orders.filter((order) => order.createdAt >= start.getTime());
   }, [orders]);
 
-  const totalRevenue = useMemo(() =>
-    todayOrders.filter(o => o.paymentStatus === 'PAID').reduce((s, o) => s + o.total, 0),
-  [todayOrders]);
+  const billableOrders = useMemo(
+    () => todayOrders.filter((order) => order.status === 'DELIVERED' && order.paymentStatus !== 'PAID'),
+    [todayOrders]
+  );
+  const completedOrdersToday = useMemo(
+    () => todayOrders.filter((order) => order.paymentStatus === 'PAID'),
+    [todayOrders]
+  );
+  const paidRevenue = useMemo(
+    () => todayOrders.filter((order) => order.paymentStatus === 'PAID').reduce((sum, order) => sum + order.total, 0),
+    [todayOrders]
+  );
+  const activeComplaints = useMemo(
+    () => orders.filter((order) => order.complaint && !order.complaint.resolved),
+    [orders]
+  );
 
-  const unpaidCount = useMemo(() =>
-    todayOrders.filter(o => o.paymentStatus === 'UNPAID' && o.status !== 'CANCELLED').length,
-  [todayOrders]);
+  const staffStats = useMemo(() => {
+    return staff
+      .map((member) => {
+        const deliveries = orders.filter((order) => order.deliveredBy === member.id);
+        const breakMinutes = (member.breakSessions || []).reduce((minutes, session) => {
+          const end = session.end || Date.now();
+          return minutes + Math.floor((end - session.start) / 60000);
+        }, 0);
+        return {
+          ...member,
+          deliveryCount: deliveries.length,
+          deliveryValue: deliveries.reduce((sum, order) => sum + order.total, 0),
+          breakMinutes,
+        };
+      })
+      .sort((a, b) => b.deliveryCount - a.deliveryCount);
+  }, [orders, staff]);
 
-  const activeCount = useMemo(() =>
-    todayOrders.filter(o => ['PENDING', 'PREPARING', 'READY'].includes(o.status)).length,
-  [todayOrders]);
+  const getMenuItemName = (menuItemId: string) => menu.find((item) => item.id === menuItemId)?.name ?? menuItemId;
 
-  const getMenuItemName = (id: string) => menu.find(m => m.id === id)?.name ?? id;
-
-  const timeFmt = (ts: number) => {
-    const d = new Date(ts);
-    return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+  const addToParcelCart = (item: { id: string; name: string; price: number }) => {
+    setParcelCart((prev) => {
+      const existing = prev.find((entry) => entry.id === item.id);
+      if (existing) {
+        return prev.map((entry) => (entry.id === item.id ? { ...entry, quantity: entry.quantity + 1 } : entry));
+      }
+      return [...prev, { ...item, quantity: 1 }];
+    });
   };
 
-  const exportToCSV = () => {
-    const headers = ['Order ID', 'Time', 'Table', 'Customer Name', 'Phone', 'Items', 'Total Revenue (INR)', 'Payment Status'];
-    const rows = todayOrders.map(order => [
-      order.id,
-      new Date(order.createdAt).toLocaleString('en-IN'),
-      order.tableId,
-      order.customerName,
-      order.customerPhone || 'N/A',
-      order.items.map(i => `${i.name} (x${i.quantity})`).join(', ').replace(/"/g, '""'),
-      order.total.toString(),
-      order.paymentStatus
-    ]);
-    
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(r => `"${r.join('","')}"`)
-    ].join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const removeFromParcelCart = (id: string) => {
+    setParcelCart((prev) =>
+      prev
+        .map((entry) => (entry.id === id ? { ...entry, quantity: entry.quantity - 1 } : entry))
+        .filter((entry) => entry.quantity > 0)
+    );
+  };
+
+  const handleAddItem = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!newItem.name || !newItem.price || !newItem.category) return;
+    setUploading(true);
+    try {
+      let image =
+        'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80';
+      const file = fileInputRef.current?.files?.[0];
+      if (file) {
+        const storageRef = ref(storage, `menu/${Date.now()}_${file.name}`);
+        const snapshot = await uploadBytes(storageRef, file);
+        image = await getDownloadURL(snapshot.ref);
+      }
+      await addMenuItem({
+        name: newItem.name.trim(),
+        description: newItem.description.trim(),
+        price: Number(newItem.price),
+        category: newItem.category.trim(),
+        image,
+        available: true,
+      });
+      setNewItem({ name: '', description: '', price: '', category: '' });
+      setIsCustomCategory(false);
+      setShowAddModal(false);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleAddStaff = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!newStaff.name || !newStaff.phone || !newStaff.pin) return;
+    addStaff(newStaff.name.trim(), newStaff.phone.trim(), newStaff.pin.trim(), newStaff.role);
+    setNewStaff({ name: '', phone: '', pin: '', role: 'WAITER' });
+  };
+
+  const handleParcelOrder = async () => {
+    if (!parcelCustomer.name.trim() || parcelCart.length === 0) return;
+    await addOrder(
+      parcelCustomer.name.trim(),
+      parcelCustomer.phone.trim(),
+      'PARCEL',
+      parcelCart.map((item) => ({
+        menuItemId: item.id,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+      })),
+      'TAKE_AWAY'
+    );
+    setShowParcelModal(false);
+    setParcelCustomer({ name: '', phone: '' });
+    setParcelCart([]);
+  };
+
+  const printBill = (orderId: string) => {
+    const order = orders.find((entry) => entry.id === orderId);
+    if (!order) return;
+    const win = window.open('', '_blank');
+    if (!win) return;
+    win.document.write(`
+      <html>
+        <head><title>Bill ${order.id}</title></head>
+        <body style="width:320px;font-family:Arial,sans-serif;padding:16px">
+          <h2 style="text-align:center;margin:0 0 12px">SmartDine</h2>
+          <div style="font-size:12px;margin-bottom:10px">Receipt: ${order.id.slice(-6).toUpperCase()}</div>
+          <div style="font-size:12px;margin-bottom:10px">Table: ${order.tableId} | Customer: ${order.customerName}</div>
+          <hr />
+          ${order.items
+            .map(
+              (item) =>
+                `<div style="display:flex;justify-content:space-between;font-size:13px;margin:4px 0"><span>${item.name} x ${item.quantity}</span><span>Rs ${
+                  item.price * item.quantity
+                }</span></div>`
+            )
+            .join('')}
+          <hr />
+          <div style="display:flex;justify-content:space-between;font-weight:700"><span>Total</span><span>Rs ${order.total}</span></div>
+          <script>window.onload=function(){window.print();window.close();}</script>
+        </body>
+      </html>
+    `);
+    win.document.close();
+  };
+
+  const printQR = (tableNo: number) => {
+    const win = window.open('', '_blank');
+    if (!win) return;
+    const url = `${baseUrl}/table/${tableNo}`;
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(url)}`;
+    win.document.write(`
+      <html>
+        <head><title>Table ${tableNo} QR</title></head>
+        <body style="display:grid;place-items:center;height:100vh;font-family:Arial,sans-serif">
+          <div style="text-align:center">
+            <h2>Table ${tableNo}</h2>
+            <img src="${qrUrl}" alt="QR for table ${tableNo}" style="width:220px;height:220px;display:block;margin:12px auto" />
+            <p>${url}</p>
+          </div>
+          <script>window.onload=function(){window.print();window.close();}</script>
+        </body>
+      </html>
+    `);
+    win.document.close();
+  };
+
+  const shareQR = (tableNo: number) => {
+    const url = `${baseUrl}/table/${tableNo}`;
+    if (navigator.share) {
+      navigator.share({
+        title: `Table ${tableNo} Ordering Link`,
+        text: `Scan or open this link to order from table ${tableNo}`,
+        url,
+      });
+      return;
+    }
+    window.alert(url);
+  };
+
+  const exportCompletedOrdersCsv = () => {
+    if (completedOrdersToday.length === 0) {
+      window.alert('No completed orders to export for today.');
+      return;
+    }
+    const headers = [
+      'Order ID',
+      'Date Time',
+      'Type',
+      'Table',
+      'Customer',
+      'Phone',
+      'Items',
+      'Total',
+      'Payment Status',
+    ];
+    const rows = completedOrdersToday.map((order) => {
+      const items = order.items.map((item) => `${item.name} x${item.quantity}`).join('; ');
+      return [
+        order.id,
+        new Date(order.createdAt).toLocaleString('en-IN'),
+        order.type,
+        order.tableId,
+        order.customerName,
+        order.customerPhone,
+        items,
+        order.total.toString(),
+        order.paymentStatus,
+      ];
+    });
+    const csv = [headers, ...rows]
+      .map((row) =>
+        row
+          .map((value) => `"${String(value).replace(/"/g, '""')}"`)
+          .join(',')
+      )
+      .join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
+    const today = new Date().toISOString().slice(0, 10);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `SmartDine_Daily_Report_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
+    link.download = `smartdine-completed-orders-${today}.csv`;
     link.click();
-    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
-  const printQR = (tableNum: number) => {
-    const printWindow = window.open('', '_blank', 'width=400,height=500');
-    if (!printWindow) return;
-    const url = `${baseUrl}/table/${tableNum}`;
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html><head><title>Table ${tableNum} QR</title>
-      <style>
-        body { font-family: 'Inter', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; text-align: center; }
-        h1 { font-size: 3rem; font-weight: 800; margin-bottom: 8px; }
-        p { color: #64748b; margin-bottom: 24px; }
-        .qr-container { padding: 24px; border: 2px solid #e2e8f0; border-radius: 16px; }
-        .url { font-size: 0.7rem; color: #94a3b8; margin-top: 16px; word-break: break-all; }
-        @media print { body { padding: 0; } }
-      </style></head><body>
-        <h1>Table ${tableNum}</h1>
-        <p>Scan to view our menu & order</p>
-        <div class="qr-container" id="qr-target"></div>
-        <div class="url">${url}</div>
-        <script>window.onload = function() { window.print(); }</script>
-      </body></html>
-    `);
-    // We can't render React QR in print window easily, so use an SVG approach
-    const svg = document.querySelector(`#qr-table-${tableNum} svg`);
-    if (svg) {
-      const svgClone = svg.cloneNode(true) as SVGElement;
-      printWindow.document.getElementById('qr-target')?.appendChild(svgClone);
+  const handleClearOrders = async () => {
+    const confirmed = window.confirm(
+      'This will permanently delete all order records from Firebase. Do you want to continue?'
+    );
+    if (!confirmed) return;
+    setClearingOrders(true);
+    try {
+      await clearAllOrders();
+      window.alert('Order data cleared successfully.');
+    } catch {
+      window.alert('Failed to clear order data. Please try again.');
+    } finally {
+      setClearingOrders(false);
     }
-    printWindow.document.close();
   };
 
   return (
     <div className="billing-page">
-      {/* Header */}
-      <header className="billing-header">
-        <div className="billing-header-top">
-          <div>
-            <div className="billing-title">Billing Console</div>
-            <div className="billing-subtitle">SmartDine Management</div>
-          </div>
-          <div className="billing-nav-links">
-            <Link to="/kitchen" className="billing-nav-link">Kitchen →</Link>
-            <a href="/waiter.html" target="_blank" rel="noopener noreferrer" className="billing-nav-link">Service ↗</a>
+      {showAddModal && (
+        <div className="modal-overlay" onClick={() => setShowAddModal(false)}>
+          <div className="modal-content" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Add New Menu Item</h3>
+              <button className="icon-btn" onClick={() => setShowAddModal(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <form className="modal-form" onSubmit={handleAddItem}>
+              <label>
+                Name
+                <input
+                  className="form-input"
+                  value={newItem.name}
+                  onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                Description
+                <textarea
+                  className="form-input"
+                  value={newItem.description}
+                  onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
+                />
+              </label>
+              <div className="form-row">
+                <label>
+                  Price (Rs)
+                  <input
+                    className="form-input"
+                    type="number"
+                    min="0"
+                    value={newItem.price}
+                    onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
+                    required
+                  />
+                </label>
+                <label>
+                  Category
+                  {!isCustomCategory ? (
+                    <select
+                      className="form-input"
+                      value={newItem.category}
+                      onChange={(e) => {
+                        if (e.target.value === 'NEW') {
+                          setIsCustomCategory(true);
+                          setNewItem({ ...newItem, category: '' });
+                        } else {
+                          setNewItem({ ...newItem, category: e.target.value });
+                        }
+                      }}
+                      required
+                    >
+                      <option value="">Select Category</option>
+                      {categories.map((category) => (
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
+                      ))}
+                      <option value="NEW">Create New Category</option>
+                    </select>
+                  ) : (
+                    <input
+                      className="form-input"
+                      value={newItem.category}
+                      onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
+                      placeholder="Category name"
+                      required
+                    />
+                  )}
+                </label>
+              </div>
+              <label>
+                Image
+                <input ref={fileInputRef} type="file" accept="image/*" className="form-input" />
+              </label>
+              <button className="primary-btn" type="submit" disabled={uploading}>
+                {uploading ? 'Saving...' : 'Save Item'}
+              </button>
+            </form>
           </div>
         </div>
-        <div className="billing-summary-row">
-          <div className="billing-stat-card">
-            <div className="billing-stat-value">{todayOrders.length}</div>
-            <div className="billing-stat-label">Total Orders</div>
+      )}
+
+      {showParcelModal && (
+        <div className="modal-overlay" onClick={() => setShowParcelModal(false)}>
+          <div className="modal-content parcel-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Create Takeaway Order</h3>
+              <button className="icon-btn" onClick={() => setShowParcelModal(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="parcel-header">
+              <input
+                className="form-input"
+                placeholder="Customer name"
+                value={parcelCustomer.name}
+                onChange={(e) => setParcelCustomer({ ...parcelCustomer, name: e.target.value })}
+              />
+              <input
+                className="form-input"
+                placeholder="Phone number"
+                value={parcelCustomer.phone}
+                onChange={(e) => setParcelCustomer({ ...parcelCustomer, phone: e.target.value })}
+              />
+            </div>
+            <div className="parcel-layout">
+              <div className="parcel-menu">
+                {menu.map((item) => (
+                  <button key={item.id} className="parcel-menu-item" onClick={() => addToParcelCart(item)} type="button">
+                    <span>{item.name}</span>
+                    <span>Rs {item.price}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="parcel-cart">
+                {parcelCart.length === 0 && <p className="muted">No items added.</p>}
+                {parcelCart.map((item) => (
+                  <div key={item.id} className="parcel-cart-item">
+                    <div>
+                      <div className="line-strong">{item.name}</div>
+                      <div className="line-muted">Rs {item.price * item.quantity}</div>
+                    </div>
+                    <div className="qty-control">
+                      <button onClick={() => removeFromParcelCart(item.id)} type="button">
+                        <Minus size={14} />
+                      </button>
+                      <span>{item.quantity}</span>
+                      <button onClick={() => addToParcelCart(item)} type="button">
+                        <Plus size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <div className="parcel-total">Total: Rs {parcelCart.reduce((sum, item) => sum + item.price * item.quantity, 0)}</div>
+                <button className="primary-btn" onClick={handleParcelOrder} type="button">
+                  Send To Kitchen
+                </button>
+              </div>
+            </div>
           </div>
-          <div className="billing-stat-card">
-            <div className="billing-stat-value revenue">₹{totalRevenue.toFixed(0)}</div>
-            <div className="billing-stat-label">Revenue</div>
+        </div>
+      )}
+
+      <header className="billing-header">
+        <div className="billing-head-row">
+          <div>
+            <h1>Operations Console</h1>
+            <p>Live billing, staff performance, complaints, and table management.</p>
           </div>
-          <div className="billing-stat-card">
-            <div className="billing-stat-value" style={{ color: unpaidCount > 0 ? 'var(--color-danger)' : 'var(--color-success)' }}>{unpaidCount}</div>
-            <div className="billing-stat-label">Unpaid</div>
+          <div className="head-actions">
+            <button className={dashboardMode ? 'primary-btn with-icon' : 'secondary-btn with-icon'} onClick={() => setDashboardMode((prev) => !prev)}>
+              <ListOrdered size={16} /> {dashboardMode ? 'Dashboard On' : 'Dashboard'}
+            </button>
+            <button className="secondary-btn with-icon" onClick={() => setShowParcelModal(true)}>
+              <Package size={16} /> New Takeaway
+            </button>
           </div>
-          <div className="billing-stat-card">
-            <div className="billing-stat-value" style={{ color: 'var(--color-primary)' }}>{activeCount}</div>
-            <div className="billing-stat-label">Active</div>
+        </div>
+
+        <div className="stats-grid">
+          <div className="stat-card">
+            <ListOrdered size={18} />
+            <div>
+              <div className="stat-value">{todayOrders.length}</div>
+              <div className="stat-label">Orders Today</div>
+            </div>
           </div>
+          <div className="stat-card">
+            <DollarSign size={18} />
+            <div>
+              <div className="stat-value">Rs {paidRevenue.toFixed(0)}</div>
+              <div className="stat-label">Collected Revenue</div>
+            </div>
+          </div>
+          <div className="stat-card">
+            <ShieldCheck size={18} />
+            <div>
+              <div className="stat-value">{billableOrders.length}</div>
+              <div className="stat-label">Pending Settlement</div>
+            </div>
+          </div>
+          <button className="stat-card complaint-trigger" onClick={() => setTab('complaints')}>
+            <AlertCircle size={18} />
+            <div>
+              <div className="stat-value">{activeComplaints.length}</div>
+              <div className="stat-label">Active Complaints</div>
+            </div>
+          </button>
         </div>
       </header>
 
-      {/* Tabs */}
-      <div className="billing-tabs">
-        <button className={`billing-tab${tab === 'orders' ? ' active' : ''}`} onClick={() => setTab('orders')}>
-          Orders
-        </button>
-        <button className={`billing-tab${tab === 'requests' ? ' active' : ''}`} onClick={() => setTab('requests')}>
-          Menu Requests
-          {menuRequests.length > 0 && <span className="badge">{menuRequests.length}</span>}
-        </button>
-        <button className={`billing-tab${tab === 'qrcodes' ? ' active' : ''}`} onClick={() => setTab('qrcodes')}>
-          Table QR Codes
-        </button>
-        <button className={`billing-tab${tab === 'pricing' ? ' active' : ''}`} onClick={() => setTab('pricing')}>
-          Menu Pricing
-        </button>
-      </div>
+      {!dashboardMode && (
+        <div className="billing-tabs">
+          <button className={tab === 'orders' ? 'active' : ''} onClick={() => setTab('orders')}>
+            Billing Queue
+          </button>
+          <button className={tab === 'staff' ? 'active' : ''} onClick={() => setTab('staff')}>
+            Staff Tracking
+          </button>
+          <button className={tab === 'complaints' ? 'active' : ''} onClick={() => setTab('complaints')}>
+            Complaints {activeComplaints.length > 0 && <span className="tab-badge">{activeComplaints.length}</span>}
+          </button>
+          <button className={tab === 'pricing' ? 'active' : ''} onClick={() => setTab('pricing')}>
+            Menu Pricing
+          </button>
+          <button className={tab === 'qrcodes' ? 'active' : ''} onClick={() => setTab('qrcodes')}>
+            Table Setup
+          </button>
+          <button className={tab === 'requests' ? 'active' : ''} onClick={() => setTab('requests')}>
+            Chef Requests {menuRequests.length > 0 && <span className="tab-badge">{menuRequests.length}</span>}
+          </button>
+        </div>
+      )}
 
-      <div className="billing-content">
-        {/* ─── Orders Tab ─── */}
+      <main className="billing-content">
         {tab === 'orders' && (
-          todayOrders.length === 0 ? (
-            <div className="billing-empty">
-              <div className="billing-empty-icon">📋</div>
-              <div>No orders today yet.</div>
+          <section className="orders-tab-layout">
+            <div className="section-header">
+              <h3>Pending Settlement</h3>
             </div>
-          ) : (
-            <>
-              <table className="billing-table">
-                <thead>
-                  <tr>
-                    <th>Order ID</th>
-                    <th>Table</th>
-                    <th>Customer</th>
-                    <th>Items</th>
-                    <th>Total</th>
-                    <th>Status</th>
-                    <th>Payment</th>
-                    <th>Time</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {todayOrders.map((order, idx) => (
-                    <tr key={order.id} style={{ animationDelay: `${idx * 40}ms` }}>
-                      <td><span className="order-id-cell">{order.id}</span></td>
-                      <td style={{ fontWeight: 700 }}>{order.tableId}</td>
-                      <td>
-                        <div style={{ fontWeight: 600, color: '#0f172a' }}>{order.customerName}</div>
-                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>{order.customerPhone}</div>
-                      </td>
-                      <td style={{ maxWidth: 200, fontSize: '0.8rem', color: 'var(--color-ink-secondary)' }}>
-                        {order.items.map(i => `${i.name} ×${i.quantity}`).join(', ')}
-                      </td>
-                      <td style={{ fontWeight: 700 }}>₹{order.total.toFixed(0)}</td>
-                      <td><span className={`status-badge ${order.status.toLowerCase()}`}>{order.status}</span></td>
-                      <td>
-                        <span className={`payment-badge ${order.paymentStatus.toLowerCase()}`}>
-                          {order.paymentStatus === 'PENDING_COUNTER' ? 'Pending Counter' : order.paymentStatus}
-                        </span>
-                      </td>
-                      <td style={{ fontSize: '0.8rem', color: 'var(--color-ink-tertiary)' }}>{timeFmt(order.createdAt)}</td>
-                      <td>
-                        <button
-                          className={`billing-pay-btn${order.paymentStatus === 'PENDING_COUNTER' ? ' pulse-confirm' : ''}`}
-                          disabled={order.paymentStatus === 'PAID' || order.status === 'CANCELLED'}
-                          onClick={() => markPaid(order.id)}
-                        >
-                          {order.paymentStatus === 'PAID' ? '✓ Paid' : 
-                           order.paymentStatus === 'PENDING_COUNTER' ? 'Confirm Payment' : 'Mark Paid'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'flex-end', gap: '12px', padding: '0 20px' }}>
-                <button 
-                  onClick={exportToCSV}
-                  style={{
-                    padding: '12px 24px',
-                    backgroundColor: '#f0fdf4',
-                    color: '#16a34a',
-                    border: '1px solid #86efac',
-                    borderRadius: '12px',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                    fontSize: '0.9rem',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '8px'
-                  }}
-                >
-                  📊 Export to Excel
+            <div className="card-grid">
+              {billableOrders.length === 0 && <div className="empty-card">No payments pending.</div>}
+              {billableOrders.map((order) => (
+                <article key={order.id} className="mini-card">
+                  <div className="line-strong">{order.type === 'TAKE_AWAY' ? 'Takeaway' : `Table ${order.tableId}`}</div>
+                  <div className="line-muted">{order.customerName}</div>
+                  <div className="line-strong">Rs {order.total}</div>
+                  <div className="mini-actions">
+                    <button className="icon-btn" onClick={() => printBill(order.id)}>
+                      <Printer size={16} />
+                    </button>
+                    <button className="primary-btn" onClick={() => markPaid(order.id)}>
+                      Settle
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            <div className="section-header with-actions">
+              <h3>Today Completed Orders</h3>
+              <div className="mini-actions">
+                <button className="secondary-btn" onClick={exportCompletedOrdersCsv}>
+                  Export Excel (CSV)
                 </button>
-                <button 
-                  onClick={() => {
-                    if (window.confirm('Are you sure you want to permanently delete ALL test orders? This cannot be undone.')) {
-                      clearAllOrders();
-                    }
-                  }}
-                  style={{
-                    padding: '12px 24px',
-                    backgroundColor: '#fee2e2',
-                    color: '#ef4444',
-                    border: '1px solid #fca5a5',
-                    borderRadius: '12px',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                    fontSize: '0.9rem',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '8px'
-                  }}
-                >
-                  🗑️ Clear All Orders
+                <button className="danger-btn" onClick={handleClearOrders} disabled={clearingOrders}>
+                  {clearingOrders ? 'Clearing...' : 'Clear Firebase Orders'}
                 </button>
               </div>
-            </>
-          )
-        )}
-
-        {/* ─── Menu Requests Tab ─── */}
-        {tab === 'requests' && (
-          menuRequests.length === 0 ? (
-            <div className="billing-empty">
-              <div className="billing-empty-icon">✅</div>
-              <div>No pending menu change requests from kitchen.</div>
             </div>
-          ) : (
-            <div className="requests-list">
-              {menuRequests.map(req => (
-                <div key={req.id} className="request-card">
-                  <div className="request-info">
-                    <div className="request-item-name">{getMenuItemName(req.menuItemId)}</div>
-                    <div className="request-detail">
-                      Chef requests to mark as <strong>{req.requestedAvailability ? 'Available' : 'Unavailable'}</strong>
-                    </div>
-                  </div>
-                  <div className="request-actions">
-                    <button className="req-approve-btn" onClick={() => resolveMenuRequest(req.id, true)}>Approve</button>
-                    <button className="req-reject-btn" onClick={() => resolveMenuRequest(req.id, false)}>Reject</button>
-                  </div>
-                </div>
+            <div className="card-grid">
+              {completedOrdersToday.length === 0 && <div className="empty-card">No completed orders yet today.</div>}
+              {completedOrdersToday.map((order) => (
+                <article key={order.id} className="mini-card">
+                  <div className="line-strong">{order.type === 'TAKE_AWAY' ? 'Takeaway' : `Table ${order.tableId}`}</div>
+                  <div className="line-muted">{order.customerName}</div>
+                  <div className="line-muted">{new Date(order.createdAt).toLocaleTimeString('en-IN')}</div>
+                  <div className="line-strong">Rs {order.total}</div>
+                </article>
               ))}
             </div>
-          )
+          </section>
         )}
 
-        {/* ─── QR Codes Tab ─── */}
-        {tab === 'qrcodes' && (
-          <div className="qr-section">
-            <div className="qr-section-header">
-              <h3 className="qr-section-title">Table QR Codes</h3>
-              <p className="qr-section-desc">Each QR code directs customers to the menu for that specific table. Click to enlarge, then print.</p>
-            </div>
-            <div className="qr-grid">
-              {Array.from({ length: TABLE_COUNT }, (_, i) => i + 1).map(num => (
-                <div
-                  key={num}
-                  className={`qr-card${selectedTable === num ? ' qr-card-selected' : ''}`}
-                  onClick={() => setSelectedTable(selectedTable === num ? null : num)}
-                  id={`qr-table-${num}`}
+        {tab === 'staff' && (
+          <section className="split-layout">
+            <aside className="panel">
+              <div className="panel-head">
+                <UserPlus size={18} />
+                <h3>Register Staff</h3>
+              </div>
+              <form onSubmit={handleAddStaff} className="stack-form">
+                <input
+                  className="form-input"
+                  placeholder="Name"
+                  value={newStaff.name}
+                  onChange={(e) => setNewStaff({ ...newStaff, name: e.target.value })}
+                  required
+                />
+                <input
+                  className="form-input"
+                  placeholder="Phone"
+                  value={newStaff.phone}
+                  onChange={(e) => setNewStaff({ ...newStaff, phone: e.target.value })}
+                  required
+                />
+                <input
+                  className="form-input"
+                  placeholder="4-digit PIN"
+                  maxLength={4}
+                  value={newStaff.pin}
+                  onChange={(e) => setNewStaff({ ...newStaff, pin: e.target.value })}
+                  required
+                />
+                <select
+                  className="form-input"
+                  value={newStaff.role}
+                  onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value as 'WAITER' | 'CHEF' })}
                 >
-                  <div className="qr-table-num">Table {num}</div>
-                  <div className="qr-code-wrap">
-                    <QRCodeSVG
-                      value={`${baseUrl}/table/${num}`}
-                      size={selectedTable === num ? 200 : 120}
-                      level="H"
-                      bgColor="transparent"
-                      fgColor="#0f172a"
-                      includeMargin={false}
-                    />
-                  </div>
-                  <div className="qr-url">{baseUrl}/table/{num}</div>
-                  {selectedTable === num && (
-                    <div className="qr-actions">
-                      <button className="qr-print-btn" onClick={(e) => { e.stopPropagation(); printQR(num); }}>
-                        🖨️ Print QR
-                      </button>
-                      <a
-                        className="qr-open-btn"
-                        href={`/table/${num}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        ↗ Open Menu
-                      </a>
+                  <option value="WAITER">Waiter</option>
+                  <option value="CHEF">Chef</option>
+                </select>
+                <button className="primary-btn" type="submit">
+                  Add Staff
+                </button>
+              </form>
+            </aside>
+
+            <div className="card-grid">
+              {staffStats.map((member) => (
+                <article key={member.id} className="staff-card">
+                  <div className="staff-top">
+                    <div className="avatar">{member.name.charAt(0)}</div>
+                    <div>
+                      <div className="line-strong">{member.name}</div>
+                      <div className="line-muted">{member.role}</div>
                     </div>
-                  )}
-                </div>
+                    <div className={`status-dot ${member.status === 'ONLINE' ? 'online' : member.status === 'BREAK' ? 'break' : ''}`} />
+                  </div>
+                  <div className="staff-metrics">
+                    <div>
+                      <span>Orders</span>
+                      <strong>{member.deliveryCount}</strong>
+                    </div>
+                    <div>
+                      <span>Revenue</span>
+                      <strong>Rs {member.deliveryValue}</strong>
+                    </div>
+                    <div>
+                      <span>Break</span>
+                      <strong>{member.breakMinutes}m</strong>
+                    </div>
+                  </div>
+                  <div className="staff-footer">
+                    <span className={`staff-status ${member.status.toLowerCase()}`}>{member.status}</span>
+                    <button className="danger-link" onClick={() => removeStaff(member.id)}>
+                      Remove
+                    </button>
+                  </div>
+                </article>
               ))}
             </div>
-          </div>
+          </section>
         )}
 
-        {/* ─── Menu Pricing Tab ─── */}
-        {tab === 'pricing' && (
-          <div className="pricing-section" style={{ padding: '0 20px 20px' }}>
-            <div className="qr-section-header" style={{ marginBottom: '24px' }}>
-              <h3 className="qr-section-title">Edit Menu Prices</h3>
-              <p className="qr-section-desc">Change the prices below. They are saved instantly to the cloud and update on customer phones automatically.</p>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '16px' }}>
-              {menu.map(item => (
-                <div key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                  <div style={{ flex: 1, paddingRight: '16px' }}>
-                    <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: '4px', fontSize: '1.05rem' }}>{item.name}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{item.category}</div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f8fafc', padding: '8px 12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                    <span style={{ fontWeight: 700, color: '#64748b' }}>₹</span>
-                    <input 
-                      type="number" 
-                      defaultValue={item.price}
-                      onBlur={(e) => {
-                        const newPrice = parseFloat(e.target.value);
-                        if (!isNaN(newPrice) && newPrice !== item.price) {
-                          updateMenuItemPrice(item.id, newPrice);
-                        }
-                      }}
-                      style={{
-                        padding: '4px',
-                        border: 'none',
-                        background: 'transparent',
-                        width: '70px',
-                        fontSize: '1.1rem',
-                        fontWeight: 700,
-                        color: '#0f172a',
-                        outline: 'none'
-                      }}
-                    />
-                  </div>
+        {tab === 'complaints' && (
+          <section className="card-grid">
+            {activeComplaints.length === 0 && <div className="empty-card">No active complaints.</div>}
+            {activeComplaints.map((order) => (
+              <article key={order.id} className="complaint-card">
+                <div className="complaint-top">
+                  <strong>Table {order.tableId}</strong>
+                  <span>{Math.floor((Date.now() - (order.complaint?.raisedAt || Date.now())) / 60000)}m ago</span>
                 </div>
+                <p>{order.complaint?.message}</p>
+                <div className="line-muted">
+                  Customer: {order.customerName} | Waiter:{' '}
+                  {staff.find((member) => member.id === order.assignedTo)?.name || 'Unassigned'}
+                </div>
+                <button className="primary-btn" onClick={() => resolveComplaint(order.id)}>
+                  Resolve
+                </button>
+              </article>
+            ))}
+          </section>
+        )}
+
+        {tab === 'pricing' && (
+          <section>
+            <div className="section-header">
+              <h3>Menu And Pricing</h3>
+              <button className="secondary-btn with-icon" onClick={() => setShowAddModal(true)}>
+                <Plus size={16} /> Add Item
+              </button>
+            </div>
+            <div className="card-grid">
+              {menu.map((item) => (
+                <article key={item.id} className="menu-card">
+                  <img src={item.image} alt={item.name} />
+                  <div>
+                    <div className="line-strong">{item.name}</div>
+                    <div className="line-muted">{item.category}</div>
+                    <label className="price-edit">
+                      <span>Rs</span>
+                      <input
+                        type="number"
+                        defaultValue={item.price}
+                        onBlur={(e) => updateMenuItemPrice(item.id, Number(e.target.value))}
+                      />
+                    </label>
+                    <button
+                      className={item.available ? 'secondary-btn' : 'primary-btn'}
+                      type="button"
+                      onClick={() => setMenuItemAvailability(item.id, !item.available)}
+                    >
+                      {item.available ? 'Disable Item' : 'Enable Item'}
+                    </button>
+                  </div>
+                </article>
               ))}
             </div>
-          </div>
+          </section>
         )}
-      </div>
+
+        {tab === 'qrcodes' && (
+          <section className="card-grid">
+            {Array.from({ length: TABLE_COUNT }, (_, index) => index + 1).map((tableNo) => (
+              <article
+                key={tableNo}
+                className={`qr-card ${activeQRTable === tableNo ? 'active' : ''}`}
+                onClick={() => setActiveQRTable(activeQRTable === tableNo ? null : tableNo)}
+              >
+                <div className="line-strong">Table {tableNo}</div>
+                <div className="qr-wrap">
+                  <QRCodeSVG value={`${baseUrl}/table/${tableNo}`} size={130} />
+                </div>
+                {activeQRTable === tableNo ? (
+                  <div className="qr-actions">
+                    <button onClick={(e) => { e.stopPropagation(); printQR(tableNo); }} className="secondary-btn with-icon">
+                      <Printer size={14} /> Print
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); shareQR(tableNo); }} className="secondary-btn with-icon">
+                      <Share2 size={14} /> Share
+                    </button>
+                  </div>
+                ) : (
+                  <div className="line-muted">Tap for actions</div>
+                )}
+              </article>
+            ))}
+          </section>
+        )}
+
+        {tab === 'requests' && (
+          <section className="card-grid">
+            {menuRequests.length === 0 && <div className="empty-card">No pending requests.</div>}
+            {menuRequests.map((request) => (
+              <article key={request.id} className="mini-card">
+                <div className="line-strong">{getMenuItemName(request.menuItemId)}</div>
+                <div className="line-muted">
+                  Request: {request.requestedAvailability ? 'Mark Available' : 'Mark Sold Out'}
+                </div>
+                <div className="mini-actions">
+                  <button className="secondary-btn" onClick={() => resolveMenuRequest(request.id, false)}>
+                    Reject
+                  </button>
+                  <button className="primary-btn" onClick={() => resolveMenuRequest(request.id, true)}>
+                    Approve
+                  </button>
+                </div>
+              </article>
+            ))}
+          </section>
+        )}
+      </main>
     </div>
   );
 }

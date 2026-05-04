@@ -1,0 +1,111 @@
+.staff-login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: linear-gradient(165deg, #0f172a 0%, #1e293b 100%);
+}
+
+.staff-login-card {
+  width: min(420px, 100%);
+  border: 1px solid #334155;
+  border-radius: 20px;
+  padding: 28px;
+  background: #ffffff;
+  text-align: center;
+  box-shadow: 0 24px 56px rgba(2, 6, 23, 0.38);
+}
+
+.staff-login-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 14px;
+  border-radius: 16px;
+  background: #e2e8f0;
+  color: #0f172a;
+  display: grid;
+  place-items: center;
+}
+
+.staff-login-title {
+  margin: 0;
+  color: #0f172a;
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.staff-login-sub {
+  margin: 8px 0 22px;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.pin-input-group {
+  margin-bottom: 12px;
+}
+
+.pin-input {
+  width: 100%;
+  border: 2px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 14px;
+  text-align: center;
+  letter-spacing: 0.35em;
+  font-size: 1.65rem;
+  color: #0f172a;
+  outline: 0;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.pin-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.14);
+}
+
+.pin-input.error {
+  border-color: #dc2626;
+  animation: pin-shake 0.3s ease-in-out;
+}
+
+.pin-error {
+  color: #b91c1c;
+  font-weight: 600;
+  font-size: 0.82rem;
+  margin-bottom: 12px;
+}
+
+.pin-submit-btn {
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: #0f172a;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.pin-submit-btn:hover {
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.22);
+}
+
+.pin-submit-btn:active {
+  transform: scale(0.98);
+}
+
+@keyframes pin-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-7px);
+  }
+  75% {
+    transform: translateX(7px);
+  }
+}
