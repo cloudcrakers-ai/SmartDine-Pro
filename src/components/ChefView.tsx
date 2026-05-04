@@ -6,6 +6,7 @@ import './ChefView.css';
 export default function ChefView() {
   const { orders, staff, menu, menuRequests, raiseMenuRequest, updateOrderStatus, updateStaffActivity, setStaffStatus } = useStore();
   const [activeKdsTab, setActiveKdsTab] = useState<'DINE_IN' | 'TAKE_AWAY'>('DINE_IN');
+  const [showStockPanel, setShowStockPanel] = useState(false);
   const [menuSearch, setMenuSearch] = useState('');
   const [menuCategoryFilter, setMenuCategoryFilter] = useState('ALL');
   
@@ -116,11 +117,14 @@ export default function ChefView() {
       <header className="kds-header">
         <div className="kds-header-left">
           <div className="kds-tabs">
-            <button className={`kds-tab ${activeKdsTab === 'DINE_IN' ? 'active' : ''}`} onClick={() => setActiveKdsTab('DINE_IN')}>
+            <button className={`kds-tab ${activeKdsTab === 'DINE_IN' && !showStockPanel ? 'active' : ''}`} onClick={() => { setActiveKdsTab('DINE_IN'); setShowStockPanel(false); }}>
               <LayoutGrid size={18} /> DINE-IN ({orders.filter(o => o.type === 'DINE_IN' && ['PENDING', 'PREPARING'].includes(o.status)).length})
             </button>
-            <button className={`kds-tab ${activeKdsTab === 'TAKE_AWAY' ? 'active' : ''}`} onClick={() => setActiveKdsTab('TAKE_AWAY')}>
+            <button className={`kds-tab ${activeKdsTab === 'TAKE_AWAY' && !showStockPanel ? 'active' : ''}`} onClick={() => { setActiveKdsTab('TAKE_AWAY'); setShowStockPanel(false); }}>
               <Package size={18} /> TAKE-AWAY ({orders.filter(o => o.type === 'TAKE_AWAY' && ['PENDING', 'PREPARING'].includes(o.status)).length})
+            </button>
+            <button className={`kds-tab ${showStockPanel ? 'active' : ''}`} onClick={() => setShowStockPanel(true)}>
+              <Ban size={18} /> STOCK REQUESTS
             </button>
           </div>
         </div>
@@ -139,6 +143,7 @@ export default function ChefView() {
       </header>
 
       <main className="kds-grid">
+        {showStockPanel && (
         <section className="kds-stock-panel">
           <div className="kds-stock-head">
             <h3>Item Availability Requests</h3>
@@ -200,7 +205,8 @@ export default function ChefView() {
             })}
           </div>
         </section>
-        {filteredOrders.length === 0 ? (
+        )}
+        {!showStockPanel && (filteredOrders.length === 0 ? (
           <div className="kds-empty">
             <Volume2 size={64} className="pulse" />
             <h2>No {activeKdsTab === 'DINE_IN' ? 'Dine-in' : 'Parcel'} Tickets</h2>
@@ -244,7 +250,7 @@ export default function ChefView() {
               </div>
             </div>
           ))
-        )}
+        ))}
       </main>
     </div>
   );
