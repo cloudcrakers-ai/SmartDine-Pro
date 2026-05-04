@@ -72,6 +72,9 @@ export default function WaiterView() {
     if (filter === 'ready') return activeOrders.filter((order) => order.status === 'READY');
     return activeOrders;
   }, [filter, myOrders, activeOrders]);
+  const pendingCount = useMemo(() => activeOrders.filter((order) => order.status === 'PENDING').length, [activeOrders]);
+  const preparingCount = useMemo(() => activeOrders.filter((order) => order.status === 'PREPARING').length, [activeOrders]);
+  const readyCount = useMemo(() => activeOrders.filter((order) => order.status === 'READY').length, [activeOrders]);
 
   const timeSince = (timestamp: number) => {
     const minutes = Math.floor((Date.now() - timestamp) / 60000);
@@ -144,6 +147,11 @@ export default function WaiterView() {
 
       <div className="waiter-dashboard">
         <div className="dashboard-header">
+          <div className="queue-summary">
+            <div className="queue-chip pending">Incoming {pendingCount}</div>
+            <div className="queue-chip preparing">Preparing {preparingCount}</div>
+            <div className="queue-chip ready">Ready {readyCount}</div>
+          </div>
           <div className="stat-pills">
             <button className={filter === 'assigned' ? 'active' : ''} onClick={() => setFilter('assigned')}>
               My Queue ({myOrders.length})
