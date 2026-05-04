@@ -88,6 +88,25 @@
 
 .kds-time { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .kds-logout { background: #334155; color: #fff; border: none; padding: 8px; border-radius: 8px; cursor: pointer; margin-left: 20px; }
+.kds-header-right { display: flex; align-items: center; gap: 8px; }
+.kds-break {
+  min-height: 34px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #cbd5e1;
+  padding: 0 10px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.kds-break.on-break {
+  background: #78350f;
+  color: #fde68a;
+  border-color: #78350f;
+}
 
 .kds-tabs {
   display: flex;
@@ -149,6 +168,32 @@
   display: grid;
   gap: 8px;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.kds-stock-filters {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 220px;
+}
+
+.kds-stock-filters input,
+.kds-stock-filters select {
+  min-height: 34px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: #0b1220;
+  color: #e2e8f0;
+  padding: 0 10px;
+}
+
+.kds-stock-empty {
+  grid-column: 1 / -1;
+  border: 1px dashed #334155;
+  border-radius: 10px;
+  color: #94a3b8;
+  text-align: center;
+  padding: 14px;
 }
 
 .kds-stock-item {
@@ -333,6 +378,10 @@
   .kds-tab {
     flex: 1;
     justify-content: center;
+  }
+
+  .kds-stock-filters {
+    grid-template-columns: 1fr;
   }
 }
 

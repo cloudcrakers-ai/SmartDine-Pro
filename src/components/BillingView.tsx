@@ -50,6 +50,14 @@ export default function BillingView() {
   const [clearingOrders, setClearingOrders] = useState(false);
   const [isCustomCategory, setIsCustomCategory] = useState(false);
   const [dashboardMode, setDashboardMode] = useState(false);
+  const [menuSearch, setMenuSearch] = useState('');
+  const [menuCategoryFilter, setMenuCategoryFilter] = useState('ALL');
+  const [showAddStaffModal, setShowAddStaffModal] = useState(false);
+  const [tableCount, setTableCount] = useState<number>(() => {
+    const raw = localStorage.getItem('sd_table_count');
+    const parsed = raw ? Number(raw) : TABLE_COUNT;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : TABLE_COUNT;
+  });
 
   const [newItem, setNewItem] = useState({ name: '', description: '', price: '', category: '' });
   const [newStaff, setNewStaff] = useState({ name: '', phone: '', pin: '', role: 'WAITER' as 'WAITER' | 'CHEF' });
@@ -63,6 +71,15 @@ export default function BillingView() {
     const unique = Array.from(new Set(menu.map((item) => item.category)));
     return unique.length > 0 ? unique : ['Mains', 'Starters', 'Desserts', 'Beverages'];
   }, [menu]);
+
+  const visibleMenu = useMemo(() => {
+    return menu.filter((item) => {
+      const categoryOk = menuCategoryFilter === 'ALL' || item.category === menuCategoryFilter;
+      const text = `${item.name} ${item.description} ${item.category}`.toLowerCase();
+      const searchOk = menuSearch.trim() === '' || text.includes(menuSearch.toLowerCase());
+      return categoryOk && searchOk;
+    });
+  }, [menu, menuCategoryFilter, menuSearch]);
 
   const todayOrders = useMemo(() => {
     const start = new Date();
@@ -159,6 +176,13 @@ export default function BillingView() {
     if (!newStaff.name || !newStaff.phone || !newStaff.pin) return;
     addStaff(newStaff.name.trim(), newStaff.phone.trim(), newStaff.pin.trim(), newStaff.role);
     setNewStaff({ name: '', phone: '', pin: '', role: 'WAITER' });
+    setShowAddStaffModal(false);
+  };
+
+  const updateTableCount = (nextCount: number) => {
+    const safeCount = Math.max(1, Math.min(100, nextCount));
+    setTableCount(safeCount);
+    localStorage.setItem('sd_table_count', String(safeCount));
   };
 
   const handleParcelOrder = async () => {
@@ -457,6 +481,54 @@ export default function BillingView() {
         </div>
       )}
 
+      {showAddStaffModal && (
+        <div className="modal-overlay" onClick={() => setShowAddStaffModal(false)}>
+          <div className="modal-content" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Register Staff</h3>
+              <button className="icon-btn" onClick={() => setShowAddStaffModal(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <form onSubmit={handleAddStaff} className="modal-form">
+              <input
+                className="form-input"
+                placeholder="Name"
+                value={newStaff.name}
+                onChange={(e) => setNewStaff({ ...newStaff, name: e.target.value })}
+                required
+              />
+              <input
+                className="form-input"
+                placeholder="Phone"
+                value={newStaff.phone}
+                onChange={(e) => setNewStaff({ ...newStaff, phone: e.target.value })}
+                required
+              />
+              <input
+                className="form-input"
+                placeholder="4-digit PIN"
+                maxLength={4}
+                value={newStaff.pin}
+                onChange={(e) => setNewStaff({ ...newStaff, pin: e.target.value })}
+                required
+              />
+              <select
+                className="form-input"
+                value={newStaff.role}
+                onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value as 'WAITER' | 'CHEF' })}
+              >
+                <option value="WAITER">Waiter</option>
+                <option value="CHEF">Chef</option>
+              </select>
+              <button className="primary-btn" type="submit">
+                Add Staff
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
       <header className="billing-header">
         <div className="billing-head-row">
           <div>
@@ -583,43 +655,11 @@ export default function BillingView() {
             <aside className="panel">
               <div className="panel-head">
                 <UserPlus size={18} />
-                <h3>Register Staff</h3>
+                <h3>Staff Controls</h3>
               </div>
-              <form onSubmit={handleAddStaff} className="stack-form">
-                <input
-                  className="form-input"
-                  placeholder="Name"
-                  value={newStaff.name}
-                  onChange={(e) => setNewStaff({ ...newStaff, name: e.target.value })}
-                  required
-                />
-                <input
-                  className="form-input"
-                  placeholder="Phone"
-                  value={newStaff.phone}
-                  onChange={(e) => setNewStaff({ ...newStaff, phone: e.target.value })}
-                  required
-                />
-                <input
-                  className="form-input"
-                  placeholder="4-digit PIN"
-                  maxLength={4}
-                  value={newStaff.pin}
-                  onChange={(e) => setNewStaff({ ...newStaff, pin: e.target.value })}
-                  required
-                />
-                <select
-                  className="form-input"
-                  value={newStaff.role}
-                  onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value as 'WAITER' | 'CHEF' })}
-                >
-                  <option value="WAITER">Waiter</option>
-                  <option value="CHEF">Chef</option>
-                </select>
-                <button className="primary-btn" type="submit">
-                  Add Staff
-                </button>
-              </form>
+              <button className="primary-btn with-icon" onClick={() => setShowAddStaffModal(true)}>
+                <UserPlus size={16} /> Add Staff
+              </button>
             </aside>
 
             <div className="card-grid">
@@ -689,8 +729,29 @@ export default function BillingView() {
                 <Plus size={16} /> Add Item
               </button>
             </div>
+            <div className="menu-filters">
+              <input
+                className="form-input"
+                placeholder="Search items or category"
+                value={menuSearch}
+                onChange={(e) => setMenuSearch(e.target.value)}
+              />
+              <select
+                className="form-input"
+                value={menuCategoryFilter}
+                onChange={(e) => setMenuCategoryFilter(e.target.value)}
+              >
+                <option value="ALL">All Categories</option>
+                {categories.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="card-grid">
-              {menu.map((item) => (
+              {visibleMenu.length === 0 && <div className="empty-card">No items found for selected filters.</div>}
+              {visibleMenu.map((item) => (
                 <article key={item.id} className="menu-card">
                   <img src={item.image} alt={item.name} />
                   <div>
@@ -719,8 +780,21 @@ export default function BillingView() {
         )}
 
         {tab === 'qrcodes' && (
-          <section className="card-grid">
-            {Array.from({ length: TABLE_COUNT }, (_, index) => index + 1).map((tableNo) => (
+          <section>
+            <div className="section-header with-actions">
+              <h3>Table Setup</h3>
+              <div className="mini-actions">
+                <button className="secondary-btn" onClick={() => updateTableCount(tableCount - 1)}>
+                  Remove Table
+                </button>
+                <button className="primary-btn" onClick={() => updateTableCount(tableCount + 1)}>
+                  Add Table
+                </button>
+              </div>
+            </div>
+            <div className="line-muted">Active tables: {tableCount}</div>
+            <div className="card-grid">
+            {Array.from({ length: tableCount }, (_, index) => index + 1).map((tableNo) => (
               <article
                 key={tableNo}
                 className={`qr-card ${activeQRTable === tableNo ? 'active' : ''}`}
@@ -744,6 +818,7 @@ export default function BillingView() {
                 )}
               </article>
             ))}
+            </div>
           </section>
         )}
 

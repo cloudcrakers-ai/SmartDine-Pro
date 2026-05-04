@@ -1,11 +1,13 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useStore } from '../context/Store';
-import { Clock, ChefHat, Play, CheckCircle2, Volume2, LogOut, LayoutGrid, Package, Ban, Check } from 'lucide-react';
+import { Clock, ChefHat, Play, CheckCircle2, Volume2, LogOut, LayoutGrid, Package, Ban, Check, Coffee } from 'lucide-react';
 import './ChefView.css';
 
 export default function ChefView() {
   const { orders, staff, menu, menuRequests, raiseMenuRequest, updateOrderStatus, updateStaffActivity, setStaffStatus } = useStore();
   const [activeKdsTab, setActiveKdsTab] = useState<'DINE_IN' | 'TAKE_AWAY'>('DINE_IN');
+  const [menuSearch, setMenuSearch] = useState('');
+  const [menuCategoryFilter, setMenuCategoryFilter] = useState('ALL');
   
   // Kitchen Auth
   const [loggedChefId, setLoggedChefId] = useState<string | null>(() => sessionStorage.getItem('sd_chef_id'));
@@ -67,6 +69,30 @@ export default function ChefView() {
     .sort((a, b) => a.createdAt - b.createdAt),
   [orders, activeKdsTab]);
 
+  const currentChef = useMemo(
+    () => staff.find((member) => member.id === loggedChefId && member.role === 'CHEF'),
+    [loggedChefId, staff]
+  );
+
+  const stockCategories = useMemo(
+    () => ['ALL', ...Array.from(new Set(menu.map((item) => item.category)))],
+    [menu]
+  );
+
+  const stockItems = useMemo(() => {
+    return menu.filter((item) => {
+      const categoryOk = menuCategoryFilter === 'ALL' || item.category === menuCategoryFilter;
+      const text = `${item.name} ${item.description} ${item.category}`.toLowerCase();
+      const searchOk = menuSearch.trim() === '' || text.includes(menuSearch.toLowerCase());
+      return categoryOk && searchOk;
+    });
+  }, [menu, menuCategoryFilter, menuSearch]);
+
+  const toggleChefBreak = () => {
+    if (!loggedChefId || !currentChef) return;
+    setStaffStatus(loggedChefId, currentChef.status === 'BREAK' ? 'ONLINE' : 'BREAK');
+  };
+
   if (!loggedChefId) {
     return (
       <div className="kds-auth-overlay">
@@ -104,6 +130,9 @@ export default function ChefView() {
         </div>
 
         <div className="kds-header-right">
+          <button className={`kds-break ${currentChef?.status === 'BREAK' ? 'on-break' : ''}`} onClick={toggleChefBreak}>
+            <Coffee size={16} /> {currentChef?.status === 'BREAK' ? 'Back Online' : 'Take Break'}
+          </button>
           <div className="kds-time">{new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
           <button className="kds-logout" onClick={handleLogout}><LogOut size={18} /></button>
         </div>
@@ -115,8 +144,23 @@ export default function ChefView() {
             <h3>Item Availability Requests</h3>
             <p>Send stock updates to billing for approval.</p>
           </div>
+          <div className="kds-stock-filters">
+            <input
+              placeholder="Search item or category"
+              value={menuSearch}
+              onChange={(e) => setMenuSearch(e.target.value)}
+            />
+            <select value={menuCategoryFilter} onChange={(e) => setMenuCategoryFilter(e.target.value)}>
+              {stockCategories.map((category) => (
+                <option key={category} value={category}>
+                  {category === 'ALL' ? 'All Categories' : category}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="kds-stock-list">
-            {menu.map((item) => {
+            {stockItems.length === 0 && <div className="kds-stock-empty">No menu items for selected filters.</div>}
+            {stockItems.map((item) => {
               const soldOutPending = menuRequests.some(
                 (request) =>
                   request.menuItemId === item.id && request.requestedAvailability === false && request.status === 'PENDING'

@@ -361,6 +361,13 @@
   margin-top: 14px;
 }
 
+.menu-filters {
+  display: grid;
+  grid-template-columns: 1fr 240px;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
 .menu-card {
   display: flex;
   gap: 10px;
@@ -568,6 +575,10 @@
   }
 
   .parcel-header {
+    grid-template-columns: 1fr;
+  }
+
+  .menu-filters {
     grid-template-columns: 1fr;
   }
 }
